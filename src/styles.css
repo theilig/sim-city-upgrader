@@ -58,31 +58,63 @@ h1 {
   margin-top: 8px;
 }
 
-.stats-band {
-  background: #102033;
-  color: white;
-  display: grid;
-  gap: 1px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.area-summary {
+  background: #ffffff;
+  border: 1px solid #d9e2ef;
+  border-radius: 8px;
   margin: 0 auto 20px;
   max-width: 1440px;
-  overflow: hidden;
+  padding: 18px;
 }
 
-.stats-band > div {
-  background: #142940;
-  padding: 18px 22px;
+.area-summary-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
 }
 
-.stats-band span {
-  color: #a8bdd4;
-  display: block;
+.area-summary-heading h2 {
+  color: #17243a;
+  font-size: 18px;
+}
+
+.area-summary-heading p {
+  color: #64748b;
   font-size: 13px;
-  margin-bottom: 6px;
+  margin-top: 3px;
 }
 
-.stats-band strong {
-  font-size: 26px;
+.area-summary-heading strong {
+  color: #0f766e;
+  font-size: 28px;
+}
+
+.area-progress {
+  margin-bottom: 14px;
+}
+
+.area-count-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.area-count > span {
+  color: #475569;
+  font-weight: 600;
+}
+
+.area-count > div {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.area-count small {
+  color: #64748b;
+  white-space: nowrap;
 }
 
 .workspace {
@@ -100,13 +132,9 @@ h1 {
   padding: 18px;
 }
 
-.wide {
-  grid-column: 1;
-}
-
 .workspace .panel:last-child {
   grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-row: 1;
 }
 
 .section-title {
@@ -261,11 +289,16 @@ select {
   padding: 14px;
 }
 
+.composer-bottom {
+  margin-bottom: 0;
+  margin-top: 16px;
+}
+
 .composer-fields {
   align-items: end;
   display: grid;
   gap: 10px;
-  grid-template-columns: 1.1fr 1fr 1.6fr;
+  grid-template-columns: 1.1fr 1.6fr;
 }
 
 .shortcut-field input {
@@ -318,6 +351,16 @@ select {
   border-color: #86efac;
 }
 
+.requirement-card.stale {
+  background: #fff1f2;
+  border-color: #f87171;
+}
+
+.requirement-card.stale .upgrade-age {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
 .requirement-card.dragging {
   opacity: 0.45;
 }
@@ -359,6 +402,13 @@ select {
   color: #475569;
   display: block;
   line-height: 1.35;
+}
+
+.upgrade-age {
+  color: #64748b;
+  display: block;
+  font-size: 11px;
+  margin-top: 4px;
 }
 
 .compact-items {
@@ -518,8 +568,7 @@ select {
     grid-template-columns: 1fr;
   }
 
-  .workspace .panel:last-child,
-  .wide {
+  .workspace .panel:last-child {
     grid-column: 1;
     grid-row: auto;
   }
@@ -534,7 +583,7 @@ select {
     flex-direction: column;
   }
 
-  .stats-band,
+  .area-count-grid,
   .region-grid,
   .level-grid,
   .composer-fields,

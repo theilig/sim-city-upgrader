@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { goodsData } from "./goodsData.js";
 
 const STORAGE_KEY = "sim-city-upgrader-state-v1";
-const TARGET_LEVEL_SIX = 160;
 const REGIONS = ["Green Valley", "Sunny Isles", "Frosty Fjords", "Limestone Cliffs"];
+const REGION_TARGET = 160;
+const TOTAL_AREA_TARGET = REGION_TARGET * REGIONS.length;
+const STALE_UPGRADE_MILLISECONDS = 48 * 60 * 60 * 1000;
 const LEVELS = [0, 1, 2, 3, 4, 5, 6];
 const GOODS = Object.keys(goodsData).sort((a, b) => a.localeCompare(b));
 const BUILDINGS = [...new Set(Object.values(goodsData).map((good) => good.building).filter(Boolean))].sort((a, b) => a.localeCompare(b));
@@ -41,10 +43,11 @@ const createRequirement = () => ({
   fromLevel: 0,
   areas: 1,
   items: [],
+  createdAt: Date.now(),
 });
 
 const createDraft = () => ({
-  region: REGIONS[0],
+  region: "",
   fromLevel: 0,
   shortcutInput: "",
   items: [],
@@ -52,6 +55,7 @@ const createDraft = () => ({
 
 const initialState = {
   regions: createRegionLevels(),
+  areaCounts: Object.fromEntries(REGIONS.map((region) => [region, 0])),
   requirements: [],
   inventory: {},
   inProgress: {},
@@ -63,6 +67,7 @@ function normalizeRequirement(requirement) {
     return {
       ...createRequirement(),
       ...requirement,
+      createdAt: Number(requirement.createdAt) || Date.now(),
       items: requirement.items.filter((item) => goodsData[item.item]).map((item) => ({ item: item.item, amount: clampNumber(item.amount) || 1 })),
     };
   }
@@ -71,6 +76,7 @@ function normalizeRequirement(requirement) {
     return {
       ...createRequirement(),
       ...requirement,
+      createdAt: Number(requirement.createdAt) || Date.now(),
       items: [{ item: requirement.item, amount: clampNumber(requirement.amount) || 1 }],
     };
   }
@@ -83,6 +89,12 @@ function readStoredState() {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (!stored) return initialState;
     const regions = { ...createRegionLevels(), ...stored.regions };
+    const areaCounts = Object.fromEntries(
+      REGIONS.map((region) => [
+        region,
+        stored.areaCounts?.[region] ?? LEVELS.reduce((total, level) => total + clampNumber(regions[region]?.[level] || 0), 0),
+      ]),
+    );
     const requirements = Array.isArray(stored.requirements) ? stored.requirements.map(normalizeRequirement).filter((requirement) => requirement.items.length) : [];
 
     requirements
@@ -110,6 +122,7 @@ function readStoredState() {
     });
     return {
       regions,
+      areaCounts,
       requirements: activeRequirements,
       inventory: stored.inventory || {},
       inProgress: stored.inProgress || {},
@@ -138,8 +151,42 @@ function formatItemList(items) {
   return items.map(formatItemRequirement).join(", ");
 }
 
+function formatElapsedTime(milliseconds) {
+  const totalMinutes = Math.max(0, Math.floor(milliseconds / 60000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days) return `${days}d ${hours}h`;
+  if (hours) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
 function productionBatchSize(item) {
   return Object.keys(goodsData[item]?.ingredients || {}).length === 0 ? 5 : 1;
+}
+
+function isBasicItem(item) {
+  return Object.keys(goodsData[item]?.ingredients || {}).length === 0;
+}
+
+function productionDurationMilliseconds(item) {
+  const discountedMinutes = (clampNumber(goodsData[item]?.duration || 0) * 0.8) / 60;
+  return Math.ceil(discountedMinutes) * 60 * 1000;
+}
+
+function nextProductionStart(item, productionQueue, now) {
+  if (isBasicItem(item)) return now;
+
+  const building = goodsData[item]?.building;
+  return Object.entries(productionQueue || {}).reduce((latestCompletion, [queuedItem, jobs]) => {
+    if (isBasicItem(queuedItem) || goodsData[queuedItem]?.building !== building) return latestCompletion;
+
+    return (Array.isArray(jobs) ? jobs : []).reduce(
+      (latestJobCompletion, job) => Math.max(latestJobCompletion, Number(job.completesAt) || 0),
+      latestCompletion,
+    );
+  }, now);
 }
 
 function parseShortcutInput(value) {
@@ -252,11 +299,17 @@ function App() {
   const [buildingFilter, setBuildingFilter] = useState("All");
   const [draggedRequirementId, setDraggedRequirementId] = useState(null);
   const [dropTargetId, setDropTargetId] = useState(null);
+  const [currentTime, setCurrentTime] = useState(Date.now);
   const shortcutRef = useRef(null);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     function completeFinishedProduction() {
@@ -303,48 +356,20 @@ function App() {
       .sort((a, b) => b.needed - b.have - b.inProgress - (a.needed - a.have - a.inProgress) || b.needed - a.needed || a.item.localeCompare(b.item));
   }, [state.requirements, state.inventory, state.inProgress]);
 
-  const pendingByRegionLevel = useMemo(() => {
-    const pending = createRegionLevels();
-    state.requirements.forEach((requirement) => {
-      pending[requirement.region][requirement.fromLevel] += clampNumber(requirement.areas);
-    });
-    return pending;
-  }, [state.requirements]);
-
-  const requirementsByRegion = useMemo(
-    () =>
-      REGIONS.reduce((grouped, region) => {
-        grouped[region] = state.requirements.filter((requirement) => requirement.region === region);
-        return grouped;
-      }, {}),
-    [state.requirements],
+  const visibleRequirements = useMemo(
+    () => state.requirements.filter((requirement) => !draft.region || requirement.region === draft.region),
+    [state.requirements, draft.region],
   );
 
-  const totals = useMemo(() => {
-    const levelSix = REGIONS.reduce((sum, region) => sum + clampNumber(state.regions[region]?.[6] || 0), 0);
-    const allAreas = REGIONS.reduce(
-      (sum, region) =>
-        sum +
-        LEVELS.reduce(
-          (levelSum, level) => levelSum + clampNumber(state.regions[region]?.[level] || 0),
-          0,
-        ),
-      0,
-    );
-    const itemsNeeded = summary.reduce((sum, entry) => sum + Math.max(entry.needed - entry.have - entry.inProgress, 0), 0);
-    return { levelSix, allAreas, itemsNeeded };
-  }, [state.regions, summary]);
+  const totalAreas = REGIONS.reduce((total, region) => total + clampNumber(state.areaCounts?.[region] || 0), 0);
+  const completionPercentage = Math.min(100, Math.round((totalAreas / TOTAL_AREA_TARGET) * 100));
 
-  function updateRegionLevel(region, level, value) {
-    const queuedAreas = clampNumber(pendingByRegionLevel[region]?.[level] || 0);
+  function updateAreaCount(region, value) {
     setState((current) => ({
       ...current,
-      regions: {
-        ...current.regions,
-        [region]: {
-          ...current.regions[region],
-          [level]: Math.max(clampNumber(value), queuedAreas),
-        },
+      areaCounts: {
+        ...(current.areaCounts || {}),
+        [region]: clampNumber(value),
       },
     }));
   }
@@ -362,11 +387,6 @@ function App() {
     }, 0);
   }
 
-  function updateDraftAndFocus(field, value) {
-    updateDraft(field, value);
-    focusShortcut();
-  }
-
   function updateDraftInput(value) {
     setDraft((current) => ({
       ...current,
@@ -376,7 +396,7 @@ function App() {
   }
 
   function addRequirement() {
-    if (!draft.items.length) return;
+    if (!draft.region || !draft.items.length) return;
 
     setState((current) => {
       const requirements = [...current.requirements];
@@ -385,6 +405,7 @@ function App() {
         region: draft.region,
         fromLevel: draft.fromLevel,
         areas: 1,
+        createdAt: Date.now(),
         items: draft.items.filter((itemRequirement) => goodsData[itemRequirement.item]).map((itemRequirement) => ({ ...itemRequirement, amount: clampNumber(itemRequirement.amount, 1) })),
       };
       const lastRegionIndex = requirements.reduce((lastIndex, requirement, index) => (requirement.region === draft.region ? index : lastIndex), -1);
@@ -412,7 +433,7 @@ function App() {
           : current.regions,
       };
     });
-    setDraft((current) => ({ ...createDraft(), region: current.region, fromLevel: current.fromLevel }));
+    setDraft((current) => ({ ...createDraft(), region: current.region }));
     focusShortcut();
   }
 
@@ -484,41 +505,46 @@ function App() {
   function startMakingItem(item) {
     const ingredients = goodsData[item]?.ingredients || {};
     const batchSize = productionBatchSize(item);
-    const completesAt = Date.now() + clampNumber(goodsData[item]?.duration || 0) * 1000;
-    setState((current) => ({
-      ...current,
-      inventory: Object.entries(ingredients).reduce(
-        (inventory, [ingredient, quantity]) => ({
-          ...inventory,
-          [ingredient]: Math.max(0, clampNumber(inventory[ingredient] || 0) - quantity),
-        }),
-        current.inventory,
-      ),
-      inProgress: {
-        ...(current.inProgress || {}),
-        [item]: clampNumber(current.inProgress?.[item] || 0) + batchSize,
-      },
-      productionQueue: {
-        ...(current.productionQueue || {}),
-        [item]: [...(Array.isArray(current.productionQueue?.[item]) ? current.productionQueue[item] : []), { amount: batchSize, completesAt }],
-      },
-    }));
+    setState((current) => {
+      const now = Date.now();
+      const startsAt = nextProductionStart(item, current.productionQueue, now);
+      const completesAt = startsAt + productionDurationMilliseconds(item);
+
+      return {
+        ...current,
+        inventory: Object.entries(ingredients).reduce(
+          (inventory, [ingredient, quantity]) => ({
+            ...inventory,
+            [ingredient]: Math.max(0, clampNumber(inventory[ingredient] || 0) - quantity),
+          }),
+          current.inventory,
+        ),
+        inProgress: {
+          ...(current.inProgress || {}),
+          [item]: clampNumber(current.inProgress?.[item] || 0) + batchSize,
+        },
+        productionQueue: {
+          ...(current.productionQueue || {}),
+          [item]: [
+            ...(Array.isArray(current.productionQueue?.[item]) ? current.productionQueue[item] : []),
+            { amount: batchSize, startsAt, completesAt },
+          ],
+        },
+      };
+    });
   }
 
   function finishMakingItem(item) {
     setState((current) => {
       const inProgress = clampNumber(current.inProgress?.[item] || 0);
       if (inProgress <= 0) return current;
-      const finishedAmount = Math.min(productionBatchSize(item), inProgress);
-      let amountLeftToRemove = finishedAmount;
       const jobs = Array.isArray(current.productionQueue?.[item]) ? current.productionQueue[item] : [];
-      const remainingJobs = jobs.flatMap((job) => {
-        if (amountLeftToRemove <= 0) return [job];
-        const removedAmount = Math.min(clampNumber(job.amount), amountLeftToRemove);
-        amountLeftToRemove -= removedAmount;
-        const remainingAmount = clampNumber(job.amount) - removedAmount;
-        return remainingAmount > 0 ? [{ ...job, amount: remainingAmount }] : [];
-      });
+      const firstJob = jobs[0];
+      const finishedAmount = Math.min(
+        firstJob ? clampNumber(firstJob.amount) || productionBatchSize(item) : productionBatchSize(item),
+        inProgress,
+      );
+      const remainingJobs = firstJob ? jobs.slice(1) : jobs;
 
       return {
         ...current,
@@ -567,89 +593,42 @@ function App() {
         </button>
       </header>
 
-      <section className="stats-band" aria-label="Upgrade totals">
-        <div>
-          <span>Level 6 Areas</span>
-          <strong>
-            {totals.levelSix}/{REGIONS.length * TARGET_LEVEL_SIX}
-          </strong>
+      <section className="area-summary" aria-labelledby="area-summary-title">
+        <div className="area-summary-heading">
+          <div>
+            <h2 id="area-summary-title">Residential Areas</h2>
+            <p>{totalAreas} of {TOTAL_AREA_TARGET} areas</p>
+          </div>
+          <strong>{completionPercentage}%</strong>
         </div>
-        <div>
-          <span>Total Areas Tracked</span>
-          <strong>{totals.allAreas}</strong>
+        <div className="progress-track area-progress" aria-label={`${completionPercentage}% complete`}>
+          <div style={{ width: `${completionPercentage}%` }} />
         </div>
-        <div>
-          <span>Still Needed</span>
-          <strong>{totals.itemsNeeded}</strong>
+        <div className="area-count-grid">
+          {REGIONS.map((region) => {
+            const count = clampNumber(state.areaCounts?.[region] || 0);
+            return (
+              <label className="area-count" key={region}>
+                <span>{region}</span>
+                <div>
+                  <input
+                    aria-label={`${region} residential areas`}
+                    className="count-input"
+                    inputMode="numeric"
+                    type="text"
+                    value={count}
+                    onChange={(event) => updateAreaCount(region, event.target.value)}
+                  />
+                  <small>/ {REGION_TARGET}</small>
+                </div>
+              </label>
+            );
+          })}
         </div>
       </section>
 
       <section className="workspace">
-        <div className="panel wide">
-          <div className="section-title">
-            <Icon label="Regions" name="map" />
-            <h2>Regions</h2>
-          </div>
-          <div className="region-grid">
-            {REGIONS.map((region) => {
-              const completedAreaEquivalents = LEVELS.reduce(
-                (sum, level) =>
-                  sum +
-                  clampNumber(state.regions[region]?.[level] || 0) * ((level + 1) / LEVELS.length),
-                0,
-              );
-              const progress = Math.min(100, Math.round((completedAreaEquivalents / TARGET_LEVEL_SIX) * 100));
-              return (
-                <article className="region-card" key={region}>
-                  <div className="region-heading">
-                    <h3>{region}</h3>
-                    <span>{progress}%</span>
-                  </div>
-                  <div className="progress-track">
-                    <div style={{ width: `${progress}%` }} />
-                  </div>
-                  <div className="level-grid">
-                    {LEVELS.map((level) => (
-                      <label key={level}>
-                        <span>L{level}</span>
-                        {(() => {
-                          const current = clampNumber(state.regions[region]?.[level] || 0);
-                          const pending = clampNumber(pendingByRegionLevel[region]?.[level] || 0);
-                          return (
-                            <>
-                              <input
-                                className="count-input"
-                                inputMode="numeric"
-                                type="text"
-                                value={current}
-                                onChange={(event) => updateRegionLevel(region, level, event.target.value)}
-                              />
-                              <small>{pending ? `(${pending})` : ""}</small>
-                            </>
-                          );
-                        })()}
-                      </label>
-                    ))}
-                  </div>
-                  {requirementsByRegion[region].length > 0 && (
-                    <div className="region-upgrades">
-                      {requirementsByRegion[region].map((requirement) => (
-                        <div className={`region-upgrade-line ${canCompleteRequirement(requirement) ? "completable" : ""}`} key={requirement.id}>
-                          <strong>
-                            {requirement.areas > 1 ? `${requirement.areas} x ` : ""}L{requirement.fromLevel} to L{requirement.fromLevel + 1}
-                          </strong>
-                          <span>{formatItemList(requirement.items)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="panel wide">
+        <div className="panel">
           <div className="section-title split">
             <div>
               <Icon label="Requirements" name="list" />
@@ -657,60 +636,14 @@ function App() {
             </div>
           </div>
 
-          <div className="composer">
-            <div className="composer-fields">
-              <select value={draft.region} onChange={(event) => updateDraft("region", event.target.value)}>
-                {REGIONS.map((region) => (
-                  <option key={region}>{region}</option>
-                ))}
-              </select>
-              <label>
-                <span>Step</span>
-                <select value={draft.fromLevel} onChange={(event) => updateDraftAndFocus("fromLevel", event.target.value)}>
-                  {LEVELS.slice(0, 6).map((level) => (
-                    <option value={level} key={level}>
-                      L{level} to L{level + 1}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="shortcut-field">
-                <span>Shortcuts</span>
-                <input
-                  ref={shortcutRef}
-                  autoComplete="off"
-                  inputMode="text"
-                  placeholder="2nl3ml2fc"
-                  value={draft.shortcutInput}
-                  onChange={(event) => updateDraftInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      addRequirement();
-                    }
-                  }}
-                />
-              </label>
-            </div>
-
-            <div className="draft-items">
-              {draft.items.length > 0 && <p className="compact-items">{formatItemList(draft.items)}</p>}
-              {!draft.items.length && <p className="empty compact">Type item shortcuts to preview them here.</p>}
-            </div>
-
-            <div className="composer-actions">
-              <button className="primary-button" type="button" onClick={addRequirement} disabled={!draft.items.length}>
-                <Icon label="Add requirement" name="add" />
-                Submit
-              </button>
-            </div>
-          </div>
-
           <div className="requirement-list">
-            {state.requirements.map((requirement) => {
+            {visibleRequirements.map((requirement) => {
               const completable = canCompleteRequirement(requirement);
+              const elapsedTime = Math.max(0, currentTime - Number(requirement.createdAt));
+              const stale = elapsedTime > STALE_UPGRADE_MILLISECONDS;
               return (
                 <article
-                  className={`requirement-card ${completable ? "completable" : ""} ${draggedRequirementId === requirement.id ? "dragging" : ""} ${dropTargetId === requirement.id ? "drop-target" : ""}`}
+                  className={`requirement-card ${completable ? "completable" : ""} ${stale ? "stale" : ""} ${draggedRequirementId === requirement.id ? "dragging" : ""} ${dropTargetId === requirement.id ? "drop-target" : ""}`}
                   key={requirement.id}
                   onDragOver={(event) => {
                     if (!draggedRequirementId || draggedRequirementId === requirement.id) return;
@@ -750,9 +683,10 @@ function App() {
                     </button>
                     <div>
                       <strong>
-                        {requirement.region} · {requirement.areas > 1 ? `${requirement.areas} x ` : ""}L{requirement.fromLevel} to L{requirement.fromLevel + 1}
+                        {requirement.region}
                       </strong>
                       <span>{formatItemList(requirement.items)}</span>
+                      <small className="upgrade-age">Added {formatElapsedTime(elapsedTime)} ago{stale ? " · Consider resetting" : ""}</small>
                     </div>
                     <button className="icon-button" type="button" onClick={() => removeRequirement(requirement.id)} title="Remove requirement">
                       <Icon label="Remove" name="trash" />
@@ -761,7 +695,48 @@ function App() {
                 </article>
               );
             })}
-            {!state.requirements.length && <p className="empty">Submitted upgrade requirements will appear here.</p>}
+            {!visibleRequirements.length && (
+              <p className="empty">{draft.region ? `No upgrades for ${draft.region}.` : "Submitted upgrade requirements will appear here."}</p>
+            )}
+          </div>
+
+          <div className="composer composer-bottom">
+            <div className="composer-fields">
+              <select aria-label="Region" value={draft.region} onChange={(event) => updateDraft("region", event.target.value)}>
+                <option value="">All regions</option>
+                {REGIONS.map((region) => (
+                  <option value={region} key={region}>{region}</option>
+                ))}
+              </select>
+              <label className="shortcut-field">
+                <span>Shortcuts</span>
+                <input
+                  ref={shortcutRef}
+                  autoComplete="off"
+                  inputMode="text"
+                  placeholder="2nl3ml2fc"
+                  value={draft.shortcutInput}
+                  onChange={(event) => updateDraftInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      addRequirement();
+                    }
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className="draft-items">
+              {draft.items.length > 0 && <p className="compact-items">{formatItemList(draft.items)}</p>}
+              {!draft.items.length && <p className="empty compact">Type item shortcuts to preview them here.</p>}
+            </div>
+
+            <div className="composer-actions">
+              <button className="primary-button" type="button" onClick={addRequirement} disabled={!draft.region || !draft.items.length}>
+                <Icon label="Add requirement" name="add" />
+                Submit
+              </button>
+            </div>
           </div>
         </div>
 
