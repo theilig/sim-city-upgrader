@@ -98,7 +98,9 @@ export const goodsData = {
     'carved wood': {ingredients: {planks: 5, 'measuring tapes': 2, drills: 2}, duration: 3600, building: 'Restoration', price: 2800, shortcut: 'cw', storeFrequency: 'frequent', requiredLevel: 35, utility: 2800},
     'chiseled stone': {ingredients: {hammers: 2, minerals: 6, drills: 2}, duration: 9000, building: 'Restoration', price: 2300, shortcut: 'cs', storeFrequency: 'frequent', requiredLevel: 35, utility: 2300},
     'tapestry': {ingredients: {textiles: 4, glue: 2, paint: 2}, duration: 12600, building: 'Restoration', price: 2560, shortcut: 'ty', storeFrequency: 'normal', requiredLevel: 67, utility: 2560},
+    'stained glass': {ingredients: {metal: 5, glass: 6, glue: 2}, duration: 14400, building: 'Restoration', price: 2560, shortcut: 'sg', storeFrequency: 'normal', requiredLevel: 73, utility: 2300},
     'tiramisu': {ingredients: {vegetables: 1, 'sugar and spices': 1, cream: 1}, duration: 2700, building: 'Dessert Shop', price: 1250, shortcut: 'tm', storeFrequency: 'normal', requiredLevel: 35, utility: 1250},
     'churros': {ingredients: {flour: 2, 'cooking utensils': 1}, duration: 2100, building: 'Dessert Shop', price: 1750, shortcut: 'cu', storeFrequency: 'normal', requiredLevel: 62, utility: 1750},
     profiterole: {ingredients: {donuts: 2, 'bread rolls': 2, 'cream': 1}, duration: 2100, building: 'Dessert Shop', price: 6550, shortcut: 'pr', storeFrequency: 'frequent', requiredLevel: 71, utility: 6550},
+    mochi: {ingredients: {'frozen yogurts': 1, 'green smoothies': 1}, duration: 2700, building: 'Dessert Shop', price: 3950, shortcut: 'mc', storeFrequency: 'frequent', requiredLevel: 79, utility: 3950},
 };
