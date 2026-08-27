@@ -149,6 +149,13 @@ h1 {
   font-size: 18px;
 }
 
+.required-items-count {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  margin-left: auto;
+}
+
 .section-title.split {
   justify-content: space-between;
 }
@@ -468,6 +475,10 @@ select {
 
 .building-filter {
   margin-bottom: 12px;
+}
+
+.building-filter option.complete {
+  color: #15803d;
 }
 
 .summary-list {

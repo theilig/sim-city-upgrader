@@ -353,8 +353,29 @@ function App() {
         have: clampNumber(state.inventory[item] || 0),
         inProgress: clampNumber(state.inProgress[item] || 0),
       }))
-      .sort((a, b) => b.needed - b.have - b.inProgress - (a.needed - a.have - a.inProgress) || b.needed - a.needed || a.item.localeCompare(b.item));
+      .sort((a, b) => {
+        const missingFraction = (entry) => Math.max(0, entry.needed - entry.have - entry.inProgress) / entry.needed;
+        return missingFraction(b) - missingFraction(a)
+          || b.needed - b.have - b.inProgress - (a.needed - a.have - a.inProgress)
+          || b.needed - a.needed
+          || a.item.localeCompare(b.item);
+      });
   }, [state.requirements, state.inventory, state.inProgress]);
+
+  const outstandingCount = (entries) => entries.reduce(
+    (total, entry) => total + Math.max(0, entry.needed - entry.have - entry.inProgress),
+    0,
+  );
+  const visibleSummary = summary.filter(
+    (entry) => buildingFilter === "All" || goodsData[entry.item]?.building === buildingFilter,
+  );
+  const visibleOutstandingCount = outstandingCount(visibleSummary);
+  const buildingOutstandingCounts = Object.fromEntries(
+    BUILDINGS.map((building) => [
+      building,
+      outstandingCount(summary.filter((entry) => goodsData[entry.item]?.building === building)),
+    ]),
+  );
 
   const visibleRequirements = useMemo(
     () => state.requirements.filter((requirement) => !draft.region || requirement.region === draft.region),
@@ -744,37 +765,36 @@ function App() {
           <div className="section-title">
             <Icon label="Required items" name="package" />
             <h2>Required Items</h2>
+            <span className="required-items-count">{visibleOutstandingCount} needed</span>
           </div>
           <select className="building-filter" value={buildingFilter} onChange={(event) => setBuildingFilter(event.target.value)}>
-            <option>All</option>
+            <option className={outstandingCount(summary) === 0 ? "complete" : ""}>All</option>
             {BUILDINGS.map((building) => (
-              <option key={building}>{building}</option>
+              <option className={buildingOutstandingCounts[building] === 0 ? "complete" : ""} key={building}>{building}</option>
             ))}
           </select>
           <div className="summary-list">
-            {summary
-              .filter((entry) => buildingFilter === "All" || goodsData[entry.item]?.building === buildingFilter)
-              .map((entry) => {
-                const complete = entry.have + entry.inProgress >= entry.needed;
-                const batchSize = productionBatchSize(entry.item);
-                return (
-                  <div className={`summary-row ${complete ? "complete" : ""}`} key={entry.item}>
-                    <strong>{displayName(entry.item)}</strong>
-                    <label>
-                      <input className="count-input" inputMode="numeric" type="text" value={entry.have} onChange={(event) => updateInventory(entry.item, event.target.value)} />
-                      <span>/ {entry.needed}{entry.inProgress ? ` (${entry.inProgress})` : ""}</span>
-                    </label>
-                    <div className="summary-actions">
-                      <button className="mini-action-button" type="button" onClick={() => startMakingItem(entry.item)} title={`Started making ${batchSize}`}>
-                        <Icon label={`Started making ${batchSize}`} name="play" />
-                      </button>
-                      <button className="mini-action-button" type="button" onClick={() => finishMakingItem(entry.item)} disabled={!entry.inProgress} title={`Finished making ${batchSize}`}>
-                        <Icon label={`Finished making ${batchSize}`} name="check" />
-                      </button>
-                    </div>
+            {visibleSummary.map((entry) => {
+              const complete = entry.have + entry.inProgress >= entry.needed;
+              const batchSize = productionBatchSize(entry.item);
+              return (
+                <div className={`summary-row ${complete ? "complete" : ""}`} key={entry.item}>
+                  <strong>{displayName(entry.item)}</strong>
+                  <label>
+                    <input className="count-input" inputMode="numeric" type="text" value={entry.have} onChange={(event) => updateInventory(entry.item, event.target.value)} />
+                    <span>/ {entry.needed}{entry.inProgress ? ` (${entry.inProgress})` : ""}</span>
+                  </label>
+                  <div className="summary-actions">
+                    <button className="mini-action-button" type="button" onClick={() => startMakingItem(entry.item)} title={`Started making ${batchSize}`}>
+                      <Icon label={`Started making ${batchSize}`} name="play" />
+                    </button>
+                    <button className="mini-action-button" type="button" onClick={() => finishMakingItem(entry.item)} disabled={!entry.inProgress} title={`Finished making ${batchSize}`}>
+                      <Icon label={`Finished making ${batchSize}`} name="check" />
+                    </button>
                   </div>
-                );
-              })}
+                </div>
+              );
+            })}
             {summary.length === 0 && <p className="empty">Add requirements to see the full item list.</p>}
           </div>
         </div>
