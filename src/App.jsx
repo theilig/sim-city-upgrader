@@ -224,6 +224,18 @@ function parseShortcutInput(value) {
   return Object.entries(totals).map(([item, amount]) => ({ item, amount }));
 }
 
+function consumeQueuedProduction(jobs, quantity) {
+  let remaining = quantity;
+
+  return (Array.isArray(jobs) ? jobs : []).flatMap((job) => {
+    if (remaining <= 0) return [job];
+    const jobAmount = clampNumber(job.amount);
+    const consumed = Math.min(jobAmount, remaining);
+    remaining -= consumed;
+    return jobAmount > consumed ? [{ ...job, amount: jobAmount - consumed }] : [];
+  });
+}
+
 function addRequirementTree(item, quantity, totals, trail = new Set()) {
   totals[item] = (totals[item] || 0) + quantity;
 
@@ -297,6 +309,7 @@ function App() {
   const [state, setState] = useState(readStoredState);
   const [draft, setDraft] = useState(createDraft);
   const [buildingFilter, setBuildingFilter] = useState("All");
+  const [bulkInventoryInput, setBulkInventoryInput] = useState("");
   const [draggedRequirementId, setDraggedRequirementId] = useState(null);
   const [dropTargetId, setDropTargetId] = useState(null);
   const [currentTime, setCurrentTime] = useState(Date.now);
@@ -528,26 +541,44 @@ function App() {
     const batchSize = productionBatchSize(item);
     setState((current) => {
       const now = Date.now();
-      const startsAt = nextProductionStart(item, current.productionQueue, now);
+      const consumedIngredients = Object.entries(ingredients).reduce(
+        (updated, [ingredient, quantity]) => {
+          const inventoryAmount = clampNumber(updated.inventory[ingredient] || 0);
+          const fromInventory = Math.min(inventoryAmount, quantity);
+          const stillNeeded = quantity - fromInventory;
+          const pendingAmount = clampNumber(updated.inProgress[ingredient] || 0);
+          const fromPending = Math.min(pendingAmount, stillNeeded);
+
+          updated.inventory[ingredient] = inventoryAmount - fromInventory;
+          if (fromPending > 0) {
+            updated.inProgress[ingredient] = pendingAmount - fromPending;
+            updated.productionQueue[ingredient] = consumeQueuedProduction(
+              updated.productionQueue[ingredient],
+              fromPending,
+            );
+          }
+          return updated;
+        },
+        {
+          inventory: { ...current.inventory },
+          inProgress: { ...(current.inProgress || {}) },
+          productionQueue: { ...(current.productionQueue || {}) },
+        },
+      );
+      const startsAt = nextProductionStart(item, consumedIngredients.productionQueue, now);
       const completesAt = startsAt + productionDurationMilliseconds(item);
 
       return {
         ...current,
-        inventory: Object.entries(ingredients).reduce(
-          (inventory, [ingredient, quantity]) => ({
-            ...inventory,
-            [ingredient]: Math.max(0, clampNumber(inventory[ingredient] || 0) - quantity),
-          }),
-          current.inventory,
-        ),
+        inventory: consumedIngredients.inventory,
         inProgress: {
-          ...(current.inProgress || {}),
-          [item]: clampNumber(current.inProgress?.[item] || 0) + batchSize,
+          ...consumedIngredients.inProgress,
+          [item]: clampNumber(consumedIngredients.inProgress[item] || 0) + batchSize,
         },
         productionQueue: {
-          ...(current.productionQueue || {}),
+          ...consumedIngredients.productionQueue,
           [item]: [
-            ...(Array.isArray(current.productionQueue?.[item]) ? current.productionQueue[item] : []),
+            ...(Array.isArray(consumedIngredients.productionQueue[item]) ? consumedIngredients.productionQueue[item] : []),
             { amount: batchSize, startsAt, completesAt },
           ],
         },
@@ -593,6 +624,23 @@ function App() {
         [item]: clampNumber(value),
       },
     }));
+  }
+
+  function applyBulkInventory(operation) {
+    const parsedItems = parseShortcutInput(bulkInventoryInput);
+    if (!parsedItems.length) return;
+
+    setState((current) => {
+      const inventory = { ...current.inventory };
+      parsedItems.forEach(({ item, amount }) => {
+        const currentAmount = clampNumber(inventory[item] || 0);
+        if (operation === "update") inventory[item] = amount;
+        if (operation === "add") inventory[item] = currentAmount + amount;
+        if (operation === "subtract") inventory[item] = Math.max(0, currentAmount - amount);
+      });
+      return { ...current, inventory };
+    });
+    setBulkInventoryInput("");
   }
 
   function resetAll() {
@@ -796,6 +844,20 @@ function App() {
               );
             })}
             {summary.length === 0 && <p className="empty">Add requirements to see the full item list.</p>}
+          </div>
+          <div className="bulk-inventory">
+            <textarea
+              aria-label="Bulk inventory"
+              onChange={(event) => setBulkInventoryInput(event.target.value)}
+              placeholder="Inventory shortcuts, e.g. 20ml 5wd 2nl"
+              rows="3"
+              value={bulkInventoryInput}
+            />
+            <div className="bulk-inventory-actions">
+              <button type="button" onClick={() => applyBulkInventory("update")}>Update</button>
+              <button type="button" onClick={() => applyBulkInventory("add")}>Add</button>
+              <button type="button" onClick={() => applyBulkInventory("subtract")}>Subtract</button>
+            </div>
           </div>
         </div>
       </section>

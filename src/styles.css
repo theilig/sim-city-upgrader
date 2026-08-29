@@ -17,7 +17,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -221,7 +222,8 @@ label span {
 }
 
 input,
-select {
+select,
+textarea {
   background: #fbfdff;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
@@ -547,6 +549,36 @@ select {
 .summary-row.complete {
   background: #f0fdf4;
   border-color: #bbf7d0;
+}
+
+.bulk-inventory {
+  border-top: 1px solid #e2e8f0;
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.bulk-inventory textarea {
+  min-height: 68px;
+  resize: vertical;
+}
+
+.bulk-inventory-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.bulk-inventory-actions button {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  color: #334155;
+  cursor: pointer;
+  font-size: 12px;
+  min-height: 28px;
+  padding: 4px 9px;
 }
 
 .done-icon {
