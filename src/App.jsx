@@ -382,7 +382,7 @@ function App() {
   const visibleSummary = summary.filter(
     (entry) => buildingFilter === "All" || goodsData[entry.item]?.building === buildingFilter,
   );
-  const visibleOutstandingCount = outstandingCount(visibleSummary);
+  const visibleOutstandingCount = outstandingCount(visibleSummary.filter((entry) => !isBasicItem(entry.item)));
   const buildingOutstandingCounts = Object.fromEntries(
     BUILDINGS.map((building) => [
       building,
