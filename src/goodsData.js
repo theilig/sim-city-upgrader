@@ -42,6 +42,7 @@ export const goodsData = {
     'home textiles': {ingredients: {textiles: 2, 'measuring tapes': 1}, duration: 4500, building: 'Furniture Store', price: 610, shortcut: 'tl', storeFrequency: 'rare', requiredLevel: 25, display: 'tiles', utility: 610},
     cupboards: {ingredients: {planks: 2, 'glass': 2, 'paint': 1}, duration: 2700, building: 'Furniture Store', price: 900, shortcut: 'cp', storeFrequency: 'rare', requiredLevel: 26, utility: 900},
     couches: {singular: 'couch', ingredients: {textiles: 3, drills: 1, glue: 1}, duration: 9000, building: 'Furniture Store', price: 1810, shortcut: 'ch', storeFrequency: 'normal', requiredLevel: 33, utility: 1010},
+    bouzouki: {ingredients: {'greek olives': 2, hammers: 1, planks: 1}, duration: 1680, building: 'Furniture Store', price: 100, shortcut: 'bz', storeFrequency: 'normal', requiredLevel: 1, utility: 100},
     grass: {'singular': 'grass', ingredients: {seeds: 1, 'shovels': 1}, duration: 1800, building: 'Gardening Supplies', price: 310, shortcut: 'gr', storeFrequency: 'normal', requiredLevel: 14, utility: 310},
     'tree saplings': {ingredients: {seeds: 2, shovels: 1}, duration: 5400, building: 'Gardening Supplies', price: 420, shortcut: 'tr', storeFrequency: 'rare', requiredLevel: 16, display: 'trees', utility: 575},
     'garden furniture': {ingredients: {plastic: 2, textiles: 2, planks: 2}, duration: 8100, building: 'Gardening Supplies', price: 820, shortcut: 'of', storeFrequency: 'rare', requiredLevel: 21, display: 'lawn chairs', utility: 820},
